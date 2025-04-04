@@ -153,3 +153,76 @@
     (ok (fold string-to-uint256-inner str u0 (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9)))
   )
 )
+
+(define-read-only (string-to-uint256-inner (str (string-ascii 128)) (acc uint) (idx uint))
+  (if (>= idx (len str))
+    acc
+    (+ (* acc u256) (unwrap-panic (index-of "0123456789abcdefghijklmnopqrstuvwxyz" (unwrap-panic (element-at str idx)))))
+  )
+)
+
+;; Calculate LP tokens to be minted for provided liquidity
+(define-read-only (calculate-liquidity-shares (amount-x uint) (amount-y uint) (token-x principal) (token-y principal))
+  (let ((ordered-pair (order-token-pair token-x token-y))
+        (pool (map-get? liquidity-pools { token-x: (get token-x ordered-pair), token-y: (get token-y ordered-pair) })))
+    (match pool
+      pool-data (
+        let ((reserve-x (get reserve-x pool-data))
+             (reserve-y (get reserve-y pool-data))
+             (total-shares (get total-shares pool-data)))
+          (if (is-eq total-shares u0)
+            ;; First liquidity provision - use geometric mean
+            (ok (sqrti (* amount-x amount-y)))
+            ;; Subsequent liquidity provision - proportional to existing reserves
+            (ok (min (/ (* amount-x total-shares) reserve-x) 
+                     (/ (* amount-y total-shares) reserve-y)))
+        )
+      )
+      (err ERR-POOL-NOT-FOUND)
+    )
+  )
+)
+
+;; Square root integer implementation for liquidity calculations
+(define-read-only (sqrti (y uint))
+  (if (is-eq y u0)
+    u0
+    (let ((z (/ (+ y u1) u2)))
+      (sqrti-iter y z)
+    )
+  )
+)
+
+(define-read-only (sqrti-iter (y uint) (z uint))
+  (let ((new-z (/ (+ z (/ y z)) u2)))
+    (if (>= z new-z)
+      z
+      (sqrti-iter y new-z)
+    )
+  )
+)
+
+;; Public functions
+
+;; Whitelist a token
+(define-public (whitelist-token (token principal))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (ok (map-set whitelisted-tokens { token: token } { whitelisted: true }))
+  )
+)
+
+;; Create a new liquidity pool
+(define-public (create-pool (token-x principal) (token-y principal) (fee-rate uint))
+  (let ((ordered-pair (order-token-pair token-x token-y)))
+    (asserts! (not (is-eq token-x token-y)) ERR-INVALID-AMOUNT)
+    (asserts! (is-eq (get whitelisted (default-to { whitelisted: false } (map-get? whitelisted-tokens { token: token-x }))) true) ERR-TOKEN-NOT-WHITELISTED)
+    (asserts! (is-eq (get whitelisted (default-to { whitelisted: false } (map-get? whitelisted-tokens { token: token-y }))) true) ERR-TOKEN-NOT-WHITELISTED)
+    (asserts! (is-none (map-get? liquidity-pools { token-x: (get token-x ordered-pair), token-y: (get token-y ordered-pair) })) ERR-POOL-EXISTS)
+    (asserts! (and (>= fee-rate u0) (<= fee-rate u1000)) ERR-INVALID-AMOUNT) ;; Fee rate between 0% and 10%
+    
+    (ok (map-set liquidity-pools 
+      { token-x: (get token-x ordered-pair), token-y: (get token-y ordered-pair) }
+      { reserve-x: u0, reserve-y: u0, total-shares: u0, fee-rate: fee-rate }))
+  )
+)
