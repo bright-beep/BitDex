@@ -226,3 +226,55 @@
       { reserve-x: u0, reserve-y: u0, total-shares: u0, fee-rate: fee-rate }))
   )
 )
+
+;; Add liquidity to an existing pool
+(define-public (add-liquidity (token-x principal) (token-y principal) (amount-x uint) (amount-y uint) (min-shares uint))
+  (let ((ordered-pair (order-token-pair token-x token-y))
+        (tx (get token-x ordered-pair))
+        (ty (get token-y ordered-pair))
+        (provider tx-sender)
+        (pool (unwrap! (map-get? liquidity-pools { token-x: tx, token-y: ty }) ERR-POOL-NOT-FOUND)))
+    
+    ;; Check inputs
+    (asserts! (not (is-eq (var-get pause-status) true)) ERR-NOT-AUTHORIZED)
+    (asserts! (> amount-x u0) ERR-INVALID-AMOUNT)
+    (asserts! (> amount-y u0) ERR-INVALID-AMOUNT)
+    
+    ;; Transfer tokens to the contract
+    (try! (contract-call? tx transfer amount-x tx-sender (as-contract tx-sender) none))
+    (try! (contract-call? ty transfer amount-y tx-sender (as-contract tx-sender) none))
+    
+    ;; Calculate shares
+    (let ((shares 
+      (if (is-eq (get total-shares pool) u0)
+        (sqrti (* amount-x amount-y))
+        (min (/ (* amount-x (get total-shares pool)) (get reserve-x pool))
+             (/ (* amount-y (get total-shares pool)) (get reserve-y pool)))
+      )))
+      
+      ;; Check minimum shares requirement
+      (asserts! (>= shares min-shares) ERR-SLIPPAGE-TOO-HIGH)
+      
+      ;; Update pool reserves
+      (map-set liquidity-pools 
+        { token-x: tx, token-y: ty }
+        {
+          reserve-x: (+ (get reserve-x pool) amount-x),
+          reserve-y: (+ (get reserve-y pool) amount-y),
+          total-shares: (+ (get total-shares pool) shares),
+          fee-rate: (get fee-rate pool)
+        }
+      )
+      
+      ;; Update provider shares
+      (let ((provider-shares (get shares (default-to { shares: u0 } (map-get? liquidity-providers { provider: provider, token-x: tx, token-y: ty })))))
+        (map-set liquidity-providers
+          { provider: provider, token-x: tx, token-y: ty }
+          { shares: (+ provider-shares shares) }
+        )
+      )
+      
+      (ok shares)
+    )
+  )
+)
