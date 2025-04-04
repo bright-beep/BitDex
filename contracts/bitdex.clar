@@ -326,3 +326,71 @@
     )
   )
 )
+
+;; Swap tokens
+(define-public (swap-exact-tokens-for-tokens 
+  (amount-in uint) 
+  (min-amount-out uint) 
+  (token-in principal) 
+  (token-out principal)
+)
+  (let ((ordered-pair (order-token-pair token-in token-out))
+        (tx (get token-x ordered-pair))
+        (ty (get token-y ordered-pair))
+        (trader tx-sender)
+        (pool (unwrap! (map-get? liquidity-pools { token-x: tx, token-y: ty }) ERR-POOL-NOT-FOUND))
+        (reserve-in (if (is-eq token-in tx) (get reserve-x pool) (get reserve-y pool)))
+        (reserve-out (if (is-eq token-in tx) (get reserve-y pool) (get reserve-x pool))))
+    
+    ;; Check inputs
+    (asserts! (not (is-eq (var-get pause-status) true)) ERR-NOT-AUTHORIZED)
+    (asserts! (> amount-in u0) ERR-INVALID-AMOUNT)
+    
+    ;; Calculate output amount
+    (let ((fee-amount (/ (* amount-in (get fee-rate pool)) u10000))
+          (protocol-fee-amount (/ (* fee-amount (var-get protocol-fee)) u10000))
+          (lp-fee-amount (- fee-amount protocol-fee-amount))
+          (amount-in-with-fee (- amount-in fee-amount))
+          (amount-out (/ (* amount-in-with-fee reserve-out) (+ reserve-in amount-in-with-fee))))
+      
+      ;; Check minimum output
+      (asserts! (>= amount-out min-amount-out) ERR-SLIPPAGE-TOO-HIGH)
+      
+      ;; Transfer tokens from trader to contract
+      (try! (contract-call? token-in transfer amount-in trader (as-contract tx-sender) none))
+      
+      ;; Update pool reserves
+      (if (is-eq token-in tx)
+        (map-set liquidity-pools 
+          { token-x: tx, token-y: ty }
+          {
+            reserve-x: (+ reserve-in amount-in-with-fee),
+            reserve-y: (- reserve-out amount-out),
+            total-shares: (get total-shares pool),
+            fee-rate: (get fee-rate pool)
+          }
+        )
+        (map-set liquidity-pools 
+          { token-x: tx, token-y: ty }
+          {
+            reserve-x: (- reserve-out amount-out),
+            reserve-y: (+ reserve-in amount-in-with-fee),
+            total-shares: (get total-shares pool),
+            fee-rate: (get fee-rate pool)
+          }
+        )
+      )
+      
+      ;; Send protocol fee
+      (if (> protocol-fee-amount u0)
+        (try! (as-contract (contract-call? token-in transfer protocol-fee-amount tx-sender (var-get protocol-fee-recipient) none)))
+        (ok true)
+      )
+      
+      ;; Transfer output tokens to trader
+      (try! (as-contract (contract-call? token-out transfer amount-out tx-sender trader none)))
+      
+      (ok amount-out)
+    )
+  )
+)
