@@ -394,3 +394,94 @@
     )
   )
 )
+
+;; Create a new farming pool
+(define-public (create-farming-pool (token-x principal) (token-y principal) (reward-token principal) (reward-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (let ((pool-id (var-get next-pool-id))
+          (ordered-pair (order-token-pair token-x token-y)))
+      
+      ;; Ensure the liquidity pool exists
+      (asserts! (is-some (map-get? liquidity-pools { token-x: (get token-x ordered-pair), token-y: (get token-y ordered-pair) })) ERR-POOL-NOT-FOUND)
+      
+      ;; Create farming pool
+      (map-set farming-pools 
+        { pool-id: pool-id }
+        {
+          token-x: (get token-x ordered-pair),
+          token-y: (get token-y ordered-pair),
+          reward-token: reward-token,
+          reward-rate: reward-rate,
+          total-staked: u0,
+          last-update-time: block-height
+        }
+      )
+      
+      ;; Increment pool id
+      (var-set next-pool-id (+ pool-id u1))
+      
+      (ok pool-id)
+    )
+  )
+)
+
+;; Stake LP tokens in a farming pool
+(define-public (stake (pool-id uint) (amount uint))
+  (let ((pool (unwrap! (map-get? farming-pools { pool-id: pool-id }) ERR-POOL-NOT-FOUND))
+        (token-x (get token-x pool))
+        (token-y (get token-y pool))
+        (farmer tx-sender)
+        (provider-info (unwrap! (map-get? liquidity-providers { provider: farmer, token-x: token-x, token-y: token-y }) ERR-INSUFFICIENT-BALANCE)))
+    
+    ;; Check inputs
+    (asserts! (not (is-eq (var-get pause-status) true)) ERR-NOT-AUTHORIZED)
+    (asserts! (> amount u0) ERR-INVALID-AMOUNT)
+    (asserts! (>= (get shares provider-info) amount) ERR-INSUFFICIENT-BALANCE)
+    
+    ;; Calculate pending rewards for existing stakes
+    (let ((farmer-stake (default-to { amount: u0, reward-debt: u0 } (map-get? farmer-stakes { farmer: farmer, pool-id: pool-id })))
+          (pending-reward (if (> (get amount farmer-stake) u0)
+                            (- (* (get amount farmer-stake) (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000)) 
+                               (get reward-debt farmer-stake))
+                            u0)))
+      
+      ;; If there are pending rewards, transfer them
+      (if (> pending-reward u0)
+        (try! (as-contract (contract-call? (get reward-token pool) transfer pending-reward tx-sender farmer none)))
+        (ok true)
+      )
+      
+      ;; Update farmer stake
+      (map-set farmer-stakes
+        { farmer: farmer, pool-id: pool-id }
+        {
+          amount: (+ (get amount farmer-stake) amount),
+          reward-debt: (* (+ (get amount farmer-stake) amount) 
+                         (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000))
+        }
+      )
+      
+      ;; Update farming pool
+      (map-set farming-pools
+        { pool-id: pool-id }
+        {
+          token-x: token-x,
+          token-y: token-y,
+          reward-token: (get reward-token pool),
+          reward-rate: (get reward-rate pool),
+          total-staked: (+ (get total-staked pool) amount),
+          last-update-time: block-height
+        }
+      )
+      
+      ;; Reduce available LP tokens
+      (map-set liquidity-providers
+        { provider: farmer, token-x: token-x, token-y: token-y }
+        { shares: (- (get shares provider-info) amount) }
+      )
+      
+      (ok amount)
+    )
+  )
+)
