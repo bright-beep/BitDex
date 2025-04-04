@@ -17,6 +17,14 @@
 ;; 4. Protocol-owned liquidity generating revenue for governance token holders
 ;; 5. Bitcoin-native asset integration (sBTC, xBTC, etc.) with SLP-20 compliance
 
+;; Define the fungible token trait interface
+(define-trait fungible-token
+  (
+    ;; Transfer from the caller to a new principal
+    (transfer (uint principal principal (optional (buff 34))) (response bool uint))
+  )
+)
+
 ;; Define constants
 (define-constant CONTRACT-OWNER tx-sender)
 (define-constant ERR-NOT-AUTHORIZED (err u100))
@@ -140,8 +148,7 @@
 
 ;; Helper function to consistently order token pairs
 (define-read-only (order-token-pair (token-a principal) (token-b principal))
-  (if (< (unwrap-panic (string-to-uint256 (principal-to-string token-a))) 
-         (unwrap-panic (string-to-uint256 (principal-to-string token-b))))
+  (if (< (print token-a) (print token-b))
     { token-x: token-a, token-y: token-b }
     { token-x: token-b, token-y: token-a }
   )
@@ -161,6 +168,14 @@
 (define-read-only (string-to-uint256-inner (acc uint) (idx uint))
   (let ((c (unwrap-panic (element-at "0123456789abcdefghijklmnopqrstuvwxyz" idx))))
     (+ (* acc u256) (unwrap-panic (index-of "0123456789abcdefghijklmnopqrstuvwxyz" c)))
+  )
+)
+
+;; Helper function to get minimum of two uints
+(define-read-only (min (a uint) (b uint))
+  (if (<= a b)
+    a
+    b
   )
 )
 
@@ -200,7 +215,7 @@
             ;; Subsequent liquidity provision - proportional to existing reserves
             (ok (min (/ (* amount-x total-shares) reserve-x) 
                      (/ (* amount-y total-shares) reserve-y)))
-        )
+        ) 
       )
       (err ERR-POOL-NOT-FOUND)
     )
