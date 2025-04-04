@@ -161,6 +161,27 @@
   )
 )
 
+;; Square root integer implementation
+(define-private (calculate-sqrt (y uint))
+  (if (is-eq y u0)
+    u0
+    (let ((z (/ (+ y u1) u2)))
+      (let ((x z))
+        (let ((x (/ (+ x (/ y x)) u2)))
+          (let ((x (/ (+ x (/ y x)) u2)))
+            (let ((x (/ (+ x (/ y x)) u2)))
+              (let ((x (/ (+ x (/ y x)) u2)))
+                (let ((x (/ (+ x (/ y x)) u2)))
+                  (let ((x (/ (+ x (/ y x)) u2)))
+                    (let ((x (/ (+ x (/ y x)) u2)))
+                      (let ((x (/ (+ x (/ y x)) u2)))
+                        (let ((x (/ (+ x (/ y x)) u2)))
+                          (let ((x (/ (+ x (/ y x)) u2)))
+                            (if (< x (/ (+ x (/ y x)) u2))
+                              (/ (+ x (/ y x)) u2)
+                              x))))))))))))))
+)
+
 ;; Calculate LP tokens to be minted for provided liquidity
 (define-read-only (calculate-liquidity-shares (amount-x uint) (amount-y uint) (token-x principal) (token-y principal))
   (let ((ordered-pair (order-token-pair token-x token-y))
@@ -172,32 +193,13 @@
              (total-shares (get total-shares pool-data)))
           (if (is-eq total-shares u0)
             ;; First liquidity provision - use geometric mean
-            (ok (sqrti (* amount-x amount-y)))
+            (ok (calculate-sqrt (* amount-x amount-y)))
             ;; Subsequent liquidity provision - proportional to existing reserves
             (ok (min (/ (* amount-x total-shares) reserve-x) 
                      (/ (* amount-y total-shares) reserve-y)))
         )
       )
       (err ERR-POOL-NOT-FOUND)
-    )
-  )
-)
-
-;; Square root integer implementation for liquidity calculations
-(define-read-only (sqrti (y uint))
-  (if (is-eq y u0)
-    u0
-    (let ((z (/ (+ y u1) u2)))
-      (sqrti-iter y z)
-    )
-  )
-)
-
-(define-read-only (sqrti-iter (y uint) (z uint))
-  (let ((new-z (/ (+ z (/ y z)) u2)))
-    (if (>= z new-z)
-      z
-      (sqrti-iter y new-z)
     )
   )
 )
@@ -244,21 +246,11 @@
     (try! (contract-call? tx transfer amount-x tx-sender (as-contract tx-sender) none))
     (try! (contract-call? ty transfer amount-y tx-sender (as-contract tx-sender) none))
     
-    ;; Calculate shares - directly implement sqrti logic here
+    ;; Calculate shares
     (let ((shares 
       (if (is-eq (get total-shares pool) u0)
-        ;; First liquidity provision - use geometric mean with inline sqrti
-        (let ((y (* amount-x amount-y)))
-          (if (is-eq y u0)
-            u0
-            (let ((z (/ (+ y u1) u2)))
-              ;; Manual implementation of sqrti-iter inline
-              (let ((iter-result (sqrti-inline y z)))
-                iter-result
-              )
-            )
-          )
-        )
+        ;; First liquidity provision - use geometric mean
+        (calculate-sqrt (* amount-x amount-y))
         ;; Subsequent liquidity provision - proportional to existing reserves
         (min (/ (* amount-x (get total-shares pool)) (get reserve-x pool))
              (/ (* amount-y (get total-shares pool)) (get reserve-y pool)))
@@ -267,7 +259,7 @@
       ;; Check minimum shares requirement
       (asserts! (>= shares min-shares) ERR-SLIPPAGE-TOO-HIGH)
       
-      ;; Rest of the function remains the same...
+      ;; Update pool
       (map-set liquidity-pools 
         { token-x: tx, token-y: ty }
         {
@@ -623,20 +615,5 @@
   (begin
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
     (ok (var-set CONTRACT-OWNER new-owner))
-  )
-)
-
-;; Helper for inline sqrti calculation
-(define-private (sqrti-inline (y uint) (z uint))
-  (sqrti-iter-inline y z)
-)
-
-;; Recursive helper for inline sqrti calculation
-(define-private (sqrti-iter-inline (y uint) (z uint))
-  (let ((new-z (/ (+ z (/ y z)) u2)))
-    (if (>= z new-z)
-      z
-      (sqrti-iter-inline y new-z)
-    )
   )
 )
