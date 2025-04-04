@@ -485,3 +485,65 @@
     )
   )
 )
+
+;; Unstake LP tokens from a farming pool
+(define-public (unstake (pool-id uint) (amount uint))
+  (let ((pool (unwrap! (map-get? farming-pools { pool-id: pool-id }) ERR-POOL-NOT-FOUND))
+        (token-x (get token-x pool))
+        (token-y (get token-y pool))
+        (farmer tx-sender)
+        (farmer-stake (unwrap! (map-get? farmer-stakes { farmer: farmer, pool-id: pool-id }) ERR-INSUFFICIENT-BALANCE)))
+    
+    ;; Check inputs
+    (asserts! (not (is-eq (var-get pause-status) true)) ERR-NOT-AUTHORIZED)
+    (asserts! (> amount u0) ERR-INVALID-AMOUNT)
+    (asserts! (>= (get amount farmer-stake) amount) ERR-INSUFFICIENT-BALANCE)
+    
+    ;; Calculate pending rewards
+    (let ((pending-reward (- (* (get amount farmer-stake) (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000)) 
+                             (get reward-debt farmer-stake))))
+      
+      ;; If there are pending rewards, transfer them
+      (if (> pending-reward u0)
+        (try! (as-contract (contract-call? (get reward-token pool) transfer pending-reward tx-sender farmer none)))
+        (ok true)
+      )
+      
+      ;; Update farmer stake
+      (if (is-eq (get amount farmer-stake) amount)
+        (map-delete farmer-stakes { farmer: farmer, pool-id: pool-id })
+        (map-set farmer-stakes
+          { farmer: farmer, pool-id: pool-id }
+          {
+            amount: (- (get amount farmer-stake) amount),
+            reward-debt: (* (- (get amount farmer-stake) amount) 
+                           (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000))
+          }
+        )
+      )
+      
+      ;; Update farming pool
+      (map-set farming-pools
+        { pool-id: pool-id }
+        {
+          token-x: token-x,
+          token-y: token-y,
+          reward-token: (get reward-token pool),
+          reward-rate: (get reward-rate pool),
+          total-staked: (- (get total-staked pool) amount),
+          last-update-time: block-height
+        }
+      )
+      
+      ;; Return LP tokens to farmer
+      (let ((provider-info (default-to { shares: u0 } (map-get? liquidity-providers { provider: farmer, token-x: token-x, token-y: token-y }))))
+        (map-set liquidity-providers
+          { provider: farmer, token-x: token-x, token-y: token-y }
+          { shares: (+ (get shares provider-info) amount) }
+        )
+      )
+      
+      (ok amount)
+    )
+  )
+)
