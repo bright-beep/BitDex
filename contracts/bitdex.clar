@@ -547,3 +547,69 @@
     )
   )
 )
+
+;; Claim rewards from a farming pool without unstaking
+(define-public (claim-rewards (pool-id uint))
+  (let ((pool (unwrap! (map-get? farming-pools { pool-id: pool-id }) ERR-POOL-NOT-FOUND))
+        (farmer tx-sender)
+        (farmer-stake (unwrap! (map-get? farmer-stakes { farmer: farmer, pool-id: pool-id }) ERR-INSUFFICIENT-BALANCE)))
+    
+    ;; Calculate pending rewards
+    (let ((pending-reward (- (* (get amount farmer-stake) (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000)) 
+                             (get reward-debt farmer-stake))))
+      
+      ;; Check if there are rewards to claim
+      (asserts! (> pending-reward u0) ERR-INVALID-AMOUNT)
+      
+      ;; Transfer rewards
+      (try! (as-contract (contract-call? (get reward-token pool) transfer pending-reward tx-sender farmer none)))
+      
+      ;; Update farmer stake
+      (map-set farmer-stakes
+        { farmer: farmer, pool-id: pool-id }
+        {
+          amount: (get amount farmer-stake),
+          reward-debt: (* (get amount farmer-stake) 
+                         (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000))
+        }
+      )
+      
+      (ok pending-reward)
+    )
+  )
+)
+
+;; Admin functions
+
+;; Update protocol fee
+(define-public (set-protocol-fee (new-fee uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (<= new-fee u1000) ERR-INVALID-AMOUNT) ;; Max 10%
+    (ok (var-set protocol-fee new-fee))
+  )
+)
+
+;; Update fee recipient
+(define-public (set-fee-recipient (new-recipient principal))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (ok (var-set protocol-fee-recipient new-recipient))
+  )
+)
+
+;; Pause/unpause contract
+(define-public (set-pause-status (new-status bool))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (ok (var-set pause-status new-status))
+  )
+)
+
+;; Transfer ownership
+(define-public (transfer-ownership (new-owner principal))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (ok (var-set CONTRACT-OWNER new-owner))
+  )
+)
