@@ -278,3 +278,51 @@
     )
   )
 )
+
+;; Remove liquidity from a pool
+(define-public (remove-liquidity (token-x principal) (token-y principal) (shares uint) (min-amount-x uint) (min-amount-y uint))
+  (let ((ordered-pair (order-token-pair token-x token-y))
+        (tx (get token-x ordered-pair))
+        (ty (get token-y ordered-pair))
+        (provider tx-sender)
+        (pool (unwrap! (map-get? liquidity-pools { token-x: tx, token-y: ty }) ERR-POOL-NOT-FOUND))
+        (provider-info (unwrap! (map-get? liquidity-providers { provider: provider, token-x: tx, token-y: ty }) ERR-INSUFFICIENT-BALANCE)))
+    
+    ;; Check inputs
+    (asserts! (not (is-eq (var-get pause-status) true)) ERR-NOT-AUTHORIZED)
+    (asserts! (> shares u0) ERR-INVALID-AMOUNT)
+    (asserts! (<= shares (get shares provider-info)) ERR-INSUFFICIENT-BALANCE)
+    
+    ;; Calculate token amounts
+    (let ((amount-x (/ (* shares (get reserve-x pool)) (get total-shares pool)))
+          (amount-y (/ (* shares (get reserve-y pool)) (get total-shares pool))))
+      
+      ;; Check minimum amounts
+      (asserts! (>= amount-x min-amount-x) ERR-SLIPPAGE-TOO-HIGH)
+      (asserts! (>= amount-y min-amount-y) ERR-SLIPPAGE-TOO-HIGH)
+      
+      ;; Update pool reserves
+      (map-set liquidity-pools 
+        { token-x: tx, token-y: ty }
+        {
+          reserve-x: (- (get reserve-x pool) amount-x),
+          reserve-y: (- (get reserve-y pool) amount-y),
+          total-shares: (- (get total-shares pool) shares),
+          fee-rate: (get fee-rate pool)
+        }
+      )
+      
+      ;; Update provider shares
+      (map-set liquidity-providers
+        { provider: provider, token-x: tx, token-y: ty }
+        { shares: (- (get shares provider-info) shares) }
+      )
+      
+      ;; Transfer tokens back to provider
+      (try! (as-contract (contract-call? tx transfer amount-x tx-sender provider none)))
+      (try! (as-contract (contract-call? ty transfer amount-y tx-sender provider none)))
+      
+      (ok { amount-x: amount-x, amount-y: amount-y })
+    )
+  )
+)
