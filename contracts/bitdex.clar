@@ -244,10 +244,22 @@
     (try! (contract-call? tx transfer amount-x tx-sender (as-contract tx-sender) none))
     (try! (contract-call? ty transfer amount-y tx-sender (as-contract tx-sender) none))
     
-    ;; Calculate shares
+    ;; Calculate shares - directly implement sqrti logic here
     (let ((shares 
       (if (is-eq (get total-shares pool) u0)
-        (sqrti (* amount-x amount-y))
+        ;; First liquidity provision - use geometric mean with inline sqrti
+        (let ((y (* amount-x amount-y)))
+          (if (is-eq y u0)
+            u0
+            (let ((z (/ (+ y u1) u2)))
+              ;; Manual implementation of sqrti-iter inline
+              (let ((iter-result (sqrti-inline y z)))
+                iter-result
+              )
+            )
+          )
+        )
+        ;; Subsequent liquidity provision - proportional to existing reserves
         (min (/ (* amount-x (get total-shares pool)) (get reserve-x pool))
              (/ (* amount-y (get total-shares pool)) (get reserve-y pool)))
       )))
@@ -255,7 +267,7 @@
       ;; Check minimum shares requirement
       (asserts! (>= shares min-shares) ERR-SLIPPAGE-TOO-HIGH)
       
-      ;; Update pool reserves
+      ;; Rest of the function remains the same...
       (map-set liquidity-pools 
         { token-x: tx, token-y: ty }
         {
@@ -611,5 +623,20 @@
   (begin
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
     (ok (var-set CONTRACT-OWNER new-owner))
+  )
+)
+
+;; Helper for inline sqrti calculation
+(define-private (sqrti-inline (y uint) (z uint))
+  (sqrti-iter-inline y z)
+)
+
+;; Recursive helper for inline sqrti calculation
+(define-private (sqrti-iter-inline (y uint) (z uint))
+  (let ((new-z (/ (+ z (/ y z)) u2)))
+    (if (>= z new-z)
+      z
+      (sqrti-iter-inline y new-z)
+    )
   )
 )
