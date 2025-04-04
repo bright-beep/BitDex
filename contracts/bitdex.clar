@@ -149,15 +149,18 @@
 
 ;; Helper function to convert principal to uint256 for comparison
 (define-read-only (string-to-uint256 (str (string-ascii 128)))
+  (ok (string-to-uint256-fold str))
+)
+
+(define-private (string-to-uint256-fold (str (string-ascii 128)))
   (let ((len (len str)))
-    (ok (fold string-to-uint256-inner str u0 (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9)))
+    (fold string-to-uint256-inner u0 (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9))
   )
 )
 
-(define-read-only (string-to-uint256-inner (str (string-ascii 128)) (acc uint) (idx uint))
-  (if (>= idx (len str))
-    acc
-    (+ (* acc u256) (unwrap-panic (index-of "0123456789abcdefghijklmnopqrstuvwxyz" (unwrap-panic (element-at str idx)))))
+(define-read-only (string-to-uint256-inner (acc uint) (idx uint))
+  (let ((c (unwrap-panic (element-at "0123456789abcdefghijklmnopqrstuvwxyz" idx))))
+    (+ (* acc u256) (unwrap-panic (index-of "0123456789abcdefghijklmnopqrstuvwxyz" c)))
   )
 )
 
