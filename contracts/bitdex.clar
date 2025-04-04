@@ -436,7 +436,7 @@
           reward-token: reward-token,
           reward-rate: reward-rate,
           total-staked: u0,
-          last-update-time: block-height
+          last-update-time: stacks-block-height
         }
       )
       
@@ -464,7 +464,7 @@
     ;; Calculate pending rewards for existing stakes
     (let ((farmer-stake (default-to { amount: u0, reward-debt: u0 } (map-get? farmer-stakes { farmer: farmer, pool-id: pool-id })))
           (pending-reward (if (> (get amount farmer-stake) u0)
-                            (- (* (get amount farmer-stake) (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000)) 
+                            (- (* (get amount farmer-stake) (/ (* (get reward-rate pool) (- stacks-block-height (get last-update-time pool))) u10000)) 
                                (get reward-debt farmer-stake))
                             u0)))
       
@@ -480,7 +480,7 @@
         {
           amount: (+ (get amount farmer-stake) amount),
           reward-debt: (* (+ (get amount farmer-stake) amount) 
-                         (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000))
+                         (/ (* (get reward-rate pool) (- stacks-block-height (get last-update-time pool))) u10000))
         }
       )
       
@@ -493,7 +493,7 @@
           reward-token: (get reward-token pool),
           reward-rate: (get reward-rate pool),
           total-staked: (+ (get total-staked pool) amount),
-          last-update-time: block-height
+          last-update-time: stacks-block-height
         }
       )
       
@@ -522,7 +522,7 @@
     (asserts! (>= (get amount farmer-stake) amount) ERR-INSUFFICIENT-BALANCE)
     
     ;; Calculate pending rewards
-    (let ((pending-reward (- (* (get amount farmer-stake) (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000)) 
+    (let ((pending-reward (- (* (get amount farmer-stake) (/ (* (get reward-rate pool) (- stacks-block-height (get last-update-time pool))) u10000)) 
                              (get reward-debt farmer-stake))))
       
       ;; If there are pending rewards, transfer them
@@ -539,7 +539,7 @@
           {
             amount: (- (get amount farmer-stake) amount),
             reward-debt: (* (- (get amount farmer-stake) amount) 
-                           (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000))
+                           (/ (* (get reward-rate pool) (- stacks-block-height (get last-update-time pool))) u10000))
           }
         )
       )
@@ -553,7 +553,7 @@
           reward-token: (get reward-token pool),
           reward-rate: (get reward-rate pool),
           total-staked: (- (get total-staked pool) amount),
-          last-update-time: block-height
+          last-update-time: stacks-block-height
         }
       )
       
@@ -577,7 +577,7 @@
         (farmer-stake (unwrap! (map-get? farmer-stakes { farmer: farmer, pool-id: pool-id }) ERR-INSUFFICIENT-BALANCE)))
     
     ;; Calculate pending rewards
-    (let ((pending-reward (- (* (get amount farmer-stake) (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000)) 
+    (let ((pending-reward (- (* (get amount farmer-stake) (/ (* (get reward-rate pool) (- stacks-block-height (get last-update-time pool))) u10000)) 
                              (get reward-debt farmer-stake))))
       
       ;; Check if there are rewards to claim
@@ -592,7 +592,7 @@
         {
           amount: (get amount farmer-stake),
           reward-debt: (* (get amount farmer-stake) 
-                         (/ (* (get reward-rate pool) (- block-height (get last-update-time pool))) u10000))
+                         (/ (* (get reward-rate pool) (- stacks-block-height (get last-update-time pool))) u10000))
         }
       )
       
