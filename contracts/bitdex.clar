@@ -47,6 +47,7 @@
   }
 )
 
+
 (define-map liquidity-providers
   { provider: principal, token-x: principal, token-y: principal }
   { shares: uint }
@@ -80,6 +81,13 @@
     amount: uint,
     reward-debt: uint
   }
+)
+
+
+;; Protocol-owned token timelock
+(define-map protocol-timelock
+  { token: principal }
+  { unlock-block: uint }
 )
 
 ;; Data variables
@@ -157,6 +165,16 @@
 ;; Helper function to convert principal to uint256 for comparison
 (define-read-only (string-to-uint256 (str (string-ascii 128)))
   (ok (string-to-uint256-fold str))
+)
+
+;; Read-only: check if protocol token is unlocked
+(define-read-only (is-protocol-token-unlocked (token principal))
+  (let ((entry (map-get? protocol-timelock { token: token })))
+    (if entry
+      (>= stacks-block-height (get unlock-block entry))
+      true ;; If no entry, consider unlocked
+    )
+  )
 )
 
 (define-private (string-to-uint256-fold (str (string-ascii 128)))
@@ -350,6 +368,7 @@
 )
 
 ;; Swap tokens
+;; Modified swap function with protocol fee timelock
 (define-public (swap-exact-tokens-for-tokens 
   (amount-in uint) 
   (min-amount-out uint) 
@@ -403,8 +422,8 @@
         )
       )
       
-      ;; Send protocol fee
-      (if (> protocol-fee-amount u0)
+      ;; Send protocol fee only if token unlocked
+      (if (and (> protocol-fee-amount u0) (is-protocol-token-unlocked token-in))
         (try! (as-contract (contract-call? token-in transfer protocol-fee-amount tx-sender (var-get protocol-fee-recipient) none)))
         (ok true)
       )
@@ -634,4 +653,12 @@
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
     (ok (var-set CONTRACT-OWNER new-owner))
   )
+)
+
+;; Set protocol token timelock
+(define-public (set-protocol-timelock (token principal) (unlock-block uint))
+  (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+  (asserts! (> unlock-block stacks-block-height) ERR-INVALID-AMOUNT)
+  (map-set protocol-timelock { token: token } { unlock-block: unlock-block })
+  (ok unlock-block)
 )
